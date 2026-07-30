@@ -55,17 +55,13 @@ jobs:
               if match is None:
                   raise SystemExit("version not found")
 
-              run_number = os.environ.get("WORKFLOW_RUN_NUMBER") or os.environ["GITHUB_RUN_NUMBER"]
-              version = f"{match.group(1)}.post{run_number}"
+              version = match.group(1)
               tag_name = f"v{version}"
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"version={version}\n")
               output.write(f"tag_name={tag_name}\n")
           PY
-        env:
-          WORKFLOW_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
-
       - name: Check whether tag already exists
         id: tag_check
         run: |
@@ -84,6 +80,7 @@ jobs:
           git push origin "$tag_name"
 
       - name: Apply release version to package metadata
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -104,35 +101,45 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
 
       - name: Set up Python
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Upgrade pip
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: python -m pip install --upgrade pip
 
       - name: Install package and dev tools
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: python -m pip install -e .[dev]
 
       - name: Run Ruff
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: ruff check .
 
       - name: Run Mypy
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: mypy .
 
       - name: Run tests
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: pytest --cov=calibration_audit --cov-report=term-missing
 
       - name: Build distribution artifacts
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: python -m build
 
       - name: Check distribution metadata
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: twine check dist/*
 
       - name: Smoke test CLI version output
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         run: calibration-audit --version
 
       - name: Check whether GitHub release already exists
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         id: release_check
         run: |
           if gh release view "${{ steps.version.outputs.tag_name }}" >/dev/null 2>&1; then
@@ -144,7 +151,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Create GitHub release
-        if: ${{ steps.release_check.outputs.exists == 'false' }}
+        if: ${{ (github.event_name == 'push' || steps.tag_check.outputs.exists == 'false') && steps.release_check.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag_name }}
@@ -154,4 +161,5 @@ jobs:
             dist/*
 
       - name: Publish to PyPI
+        if: ${{ github.event_name == 'push' || steps.tag_check.outputs.exists == 'false' }}
         uses: pypa/gh-action-pypi-publish@release/v1
