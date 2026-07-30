@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -39,10 +40,10 @@ class AuditConfig(BaseModel):
         lt=1,
         description="Maximum board area as a fraction of total image area.",
     )
-    min_sharpness: float | None = Field(
+    min_sharpness: Optional[float] = Field(
         None, gt=0, description="Optional absolute minimum sharpness threshold."
     )
-    max_per_view_error: float | None = Field(
+    max_per_view_error: Optional[float] = Field(
         None, gt=0, description="Optional quality-gate threshold for per-view reprojection error."
     )
     disable_fallback_detector: bool = Field(
