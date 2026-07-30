@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,13 +7,13 @@ name = "opencv-calibration-audit"
 version = "0.1.0"
 description = "Audit OpenCV checkerboard calibration datasets, detect weak or duplicate views, visualize image-plane coverage, calibrate the camera, and generate an explainable offline report."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -34,7 +34,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://example.com" # Replace with actual URL later
+Homepage = "https://github.com/flavvesResearch/opencv-calibration-audit"
+Repository = "https://github.com/flavvesResearch/opencv-calibration-audit"
+Issues = "https://github.com/flavvesResearch/opencv-calibration-audit/issues"
 
 [project.scripts]
 calibration-audit = "calibration_audit.cli:main"

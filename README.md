@@ -1,8 +1,8 @@
 # OpenCV Calibration Audit
 
-[![PyPI Version](https://img.shields.io/pypi/v/opencv-calibration-audit.svg)](https://pypi.org/project/opencv-calibration-audit/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/opencv-calibration-audit.svg)](https://pypi.org/project/opencv-calibration-audit/)
-[![License](https://img.shields.io/pypi/l/opencv-calibration-audit.svg)](https://github.com/your-username/opencv-calibration-audit/blob/main/LICENSE)
+[![PyPI Version](https://img.shields.io/pypi/v/opencv-calibration-audit?label=PyPI&cacheSeconds=300)](https://pypi.org/project/opencv-calibration-audit/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/opencv-calibration-audit?cacheSeconds=300)](https://pypi.org/project/opencv-calibration-audit/)
+[![License](https://img.shields.io/pypi/l/opencv-calibration-audit?cacheSeconds=300)](https://github.com/flavvesResearch/opencv-calibration-audit/blob/main/LICENSE)
 
 **Audit OpenCV checkerboard calibration datasets, detect weak or duplicate views, visualize image-plane coverage, calibrate the camera, and generate an explainable offline report.**
 
@@ -99,7 +99,7 @@ To set up a development environment:
 
 ```bash
 # Clone the repository
-git clone https://example.com/your-repo.git
+git clone https://github.com/flavvesResearch/opencv-calibration-audit.git
 cd opencv-calibration-audit
 
 # Install in editable mode with dev dependencies
@@ -116,5 +116,5 @@ mypy .
 ## CI/CD
 
 - Pushes and pull requests run Ruff, Mypy, Pytest, a build check, `twine check`, and a CLI smoke test in GitHub Actions.
-- After CI passes on `main`, GitHub Actions automatically bumps the patch version, commits it back to `main`, creates and pushes a tag, and then publishes the release.
+- After CI passes on `main`, GitHub Actions creates a unique `.postN` release tag, creates a GitHub Release, and publishes the package to PyPI.
 - Pushing a version tag that starts with `v` creates a GitHub Release and publishes the package to PyPI through Trusted Publishing.
