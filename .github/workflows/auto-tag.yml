@@ -30,6 +30,7 @@ jobs:
         run: |
           version=$(python3 - <<'PY'
           from pathlib import Path
+          import os
           import re
 
           text = Path('pyproject.toml').read_text()
@@ -38,10 +39,12 @@ jobs:
           if match is None:
               raise SystemExit('version not found')
 
-          print(match.group(1))
+          print(f"{match.group(1)}.post{os.environ['RUN_NUMBER']}")
           PY
           )
           echo "version=$version" >> "$GITHUB_OUTPUT"
+        env:
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
 
       - name: Check whether tag already exists
         id: tag_check

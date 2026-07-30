@@ -24,6 +24,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Derive release version from tag
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import os
+
+          version = os.environ['VERSION'].lstrip('v')
+          path = Path('pyproject.toml')
+          text = path.read_text()
+          updated = re.sub(r'^version = ".*"$', f'version = "{version}"', text, count=1, flags=re.M)
+
+          if updated == text:
+              raise SystemExit('version line not updated')
+
+          path.write_text(updated)
+          PY
+        env:
+          VERSION: ${{ github.ref_name }}
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

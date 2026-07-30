@@ -3,7 +3,13 @@ A production-quality, installable Python package that audits the quality of
 checkerboard image datasets used for OpenCV monocular camera calibration.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+
+try:
+    __version__ = version("opencv-calibration-audit")
+except PackageNotFoundError:
+    __version__ = "0.1.0"
 
 from .config import AuditConfig
 from .exceptions import (
