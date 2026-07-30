@@ -112,3 +112,8 @@ pytest
 ruff check .
 mypy .
 ```
+
+## CI/CD
+
+- Pushes and pull requests run Ruff, Mypy, Pytest, a build check, `twine check`, and a CLI smoke test in GitHub Actions.
+- Pushing a version tag that starts with `v` creates a GitHub Release and publishes the package to PyPI through Trusted Publishing.
