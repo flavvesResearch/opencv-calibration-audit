@@ -191,9 +191,11 @@ python -m build
 twine check dist/*
 ```
 
-CI tests Python 3.9–3.13. Publishing is deliberately separate from ordinary CI
-and can run only for an explicitly published GitHub Release whose tag matches
-the project version.
+CI tests Python 3.9–3.13. After a successful `main` CI run, the version in
+`pyproject.toml` is used to create a new tag and GitHub Release automatically.
+That release triggers the separate PyPI Trusted Publishing workflow. Bump the
+project version before merging releasable changes; an already released version
+is detected and safely skipped.
 
 ## License
 

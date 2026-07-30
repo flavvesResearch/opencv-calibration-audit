@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    name: Build and publish the approved release
+    name: Build and publish release
     runs-on: ubuntu-latest
     environment:
       name: pypi
