@@ -116,4 +116,5 @@ mypy .
 ## CI/CD
 
 - Pushes and pull requests run Ruff, Mypy, Pytest, a build check, `twine check`, and a CLI smoke test in GitHub Actions.
+- After CI passes on `main`, GitHub Actions automatically bumps the patch version, commits it back to `main`, creates and pushes a tag, and then publishes the release.
 - Pushing a version tag that starts with `v` creates a GitHub Release and publishes the package to PyPI through Trusted Publishing.

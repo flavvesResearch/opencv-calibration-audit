@@ -1,0 +1,61 @@
+name: Auto Tag Release
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Create release tag
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Check out commit that passed CI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Read package version
+        id: version
+        run: |
+          version=$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          text = Path('pyproject.toml').read_text()
+          match = re.search(r'^version = "(\d+\.\d+\.\d+)"$', text, re.M)
+
+          if match is None:
+              raise SystemExit('version not found')
+
+          print(match.group(1))
+          PY
+          )
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether tag already exists
+        id: tag_check
+        run: |
+          tag_name="v${{ steps.version.outputs.version }}"
+          if git ls-remote --tags origin "refs/tags/${tag_name}" | grep -q "${tag_name}"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: ${{ steps.tag_check.outputs.exists == 'false' }}
+        run: |
+          tag_name="v${{ steps.version.outputs.version }}"
+          git tag -a "$tag_name" -m "Release $tag_name"
+          git push origin "$tag_name"
