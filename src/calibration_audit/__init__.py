@@ -5,12 +5,6 @@ checkerboard image datasets used for OpenCV monocular camera calibration.
 
 from importlib.metadata import PackageNotFoundError, version
 
-
-try:
-    __version__ = version("opencv-calibration-audit")
-except PackageNotFoundError:
-    __version__ = "0.1.0"
-
 from .config import AuditConfig
 from .exceptions import (
     CalibrationAuditError,
@@ -21,6 +15,11 @@ from .exceptions import (
     OutputExistsError,
 )
 from .models import PatternSpec
+
+try:
+    __version__ = version("opencv-calibration-audit")
+except PackageNotFoundError:
+    __version__ = "0.1.0"
 
 __all__ = [
     "AuditConfig",
