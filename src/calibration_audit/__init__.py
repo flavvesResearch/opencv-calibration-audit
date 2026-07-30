@@ -1,11 +1,13 @@
-"""
-A production-quality, installable Python package that audits the quality of
-checkerboard image datasets used for OpenCV monocular camera calibration.
-"""
+"""Audit checkerboard datasets and calibrate monocular pinhole cameras."""
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .config import AuditConfig
+try:
+    __version__ = version("opencv-calibration-audit")
+except PackageNotFoundError:
+    __version__ = "0.2.0"
+
+from .config import AuditConfig, AuditPolicy
 from .exceptions import (
     CalibrationAuditError,
     CalibrationFailedError,
@@ -14,21 +16,43 @@ from .exceptions import (
     InvalidConfigurationError,
     OutputExistsError,
 )
-from .models import PatternSpec
-
-try:
-    __version__ = version("opencv-calibration-audit")
-except PackageNotFoundError:
-    __version__ = "0.1.0"
+from .models import (
+    AuditReason,
+    AuditResult,
+    CalibrationResult,
+    DatasetMetrics,
+    ImageAuditResult,
+    ImageMetrics,
+    ImageState,
+    PatternSpec,
+    QualityGateResult,
+    ReasonCode,
+    ReprojectionStats,
+    Severity,
+)
+from .pipeline import audit_dataset
 
 __all__ = [
     "AuditConfig",
+    "AuditPolicy",
+    "AuditReason",
+    "AuditResult",
     "CalibrationAuditError",
     "CalibrationFailedError",
+    "CalibrationResult",
+    "DatasetMetrics",
     "DatasetValidationError",
+    "ImageAuditResult",
+    "ImageMetrics",
+    "ImageState",
     "InsufficientViewsError",
     "InvalidConfigurationError",
     "OutputExistsError",
     "PatternSpec",
+    "QualityGateResult",
+    "ReasonCode",
+    "ReprojectionStats",
+    "Severity",
     "__version__",
+    "audit_dataset",
 ]

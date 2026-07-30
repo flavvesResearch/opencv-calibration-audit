@@ -1,117 +1,77 @@
-"""Unit tests for the command-line interface."""
+"""CLI exit-code and argument handling tests."""
+
+from __future__ import annotations
 
 import sys
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
-from _pytest.capture import CaptureFixture
-from _pytest.logging import LogCaptureFixture
 
 from calibration_audit.cli import main
+from calibration_audit.exceptions import CalibrationFailedError, DatasetValidationError
 
 
-def run_cli(*args: str) -> None:
-    """Helper function to run the CLI with mocked sys.argv."""
-    with patch.object(sys, "argv", ["calibration-audit", *args]):
+def run_cli(*args: str) -> int:
+    with patch.object(sys, "argv", ["calibration-audit", *args]), pytest.raises(
+        SystemExit
+    ) as exc_info:
         main()
+    assert isinstance(exc_info.value.code, int)
+    return exc_info.value.code
 
 
-def test_cli_version(capsys: CaptureFixture[str]) -> None:
-    """Test the --version flag."""
-    with pytest.raises(SystemExit) as exc_info:
-        run_cli("--version")
-    assert exc_info.value.code == 0
-    captured = capsys.readouterr()
-    assert "calibration-audit version" in captured.out
+def valid_args() -> tuple[str, ...]:
+    return ("analyze", ".", "--cols", "9", "--rows", "6", "--square-size", "30")
 
 
-def test_cli_help(capsys: CaptureFixture[str]) -> None:
-    """Test the --help flag."""
-    with pytest.raises(SystemExit) as exc_info:
-        run_cli("--help")
-    assert exc_info.value.code == 0
-    captured = capsys.readouterr()
-    assert "usage: calibration-audit" in captured.out
-    assert "analyze" in captured.out
+def test_version_and_help(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run_cli("--version") == 0
+    assert "calibration-audit version" in capsys.readouterr().out
+    assert run_cli("--help") == 0
+    assert "analyze" in capsys.readouterr().out
 
 
-def test_cli_analyze_missing_args(capsys: CaptureFixture[str]) -> None:
-    """Test calling analyze with missing required arguments."""
-    with pytest.raises(SystemExit) as exc_info:
-        run_cli("analyze", "./images")
-    assert exc_info.value.code == 2
-    captured = capsys.readouterr()
-    assert "the following arguments are required: --cols, --rows, --square-size" in captured.err
+def test_missing_required_arguments(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run_cli("analyze", ".") == 2
+    assert "--cols" in capsys.readouterr().err
 
 
-def test_cli_analyze_basic_config(caplog: LogCaptureFixture) -> None:
-    """Test a minimal valid call to the analyze command."""
-    with pytest.raises(SystemExit) as exc_info:
-        run_cli(
-            "analyze",
-            "./images",
-            "--cols",
-            "9",
-            "--rows",
-            "6",
-            "--square-size",
-            "30",
-        )
-    assert exc_info.value.code == 0
-    assert "Configuration loaded successfully." in caplog.text
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (DatasetValidationError("bad dataset"), 2),
+        (CalibrationFailedError("opencv failed"), 3),
+        (RuntimeError("unexpected"), 3),
+    ],
+)
+def test_exception_exit_mapping(
+    error: Exception, expected: int, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with patch("calibration_audit.cli.audit_dataset", side_effect=error):
+        assert run_cli(*valid_args()) == expected
+    assert "Traceback" not in capsys.readouterr().err
 
 
-def test_cli_analyze_full_config(caplog: LogCaptureFixture) -> None:
-    """Test a call with all arguments to the analyze command."""
-    with pytest.raises(SystemExit) as exc_info:
-        run_cli(
-            "analyze",
-            "/data/images",
-            "--cols",
-            "10",
-            "--rows",
-            "7",
-            "--square-size",
-            "25.5",
-            "--unit",
-            "cm",
-            "--output",
-            "/tmp/output",
-            "--recursive",
-            "--min-valid-images",
-            "15",
-            "--min-board-area",
-            "0.05",
-            "--max-board-area",
-            "0.85",
-            "--min-sharpness",
-            "100.0",
-            "--max-per-view-error",
-            "0.5",
-            "--disable-fallback-detector",
-            "--fail-on-warning",
-            "--overwrite-output",
-            "--log-level",
-            "DEBUG",
-        )
-    assert exc_info.value.code == 0
-    assert "Configuration loaded successfully." in caplog.text
-    assert "DEBUG" in caplog.text
+def test_debug_mode_includes_traceback(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("calibration_audit.cli.audit_dataset", side_effect=RuntimeError("boom")):
+        assert run_cli(*valid_args(), "--log-level", "DEBUG") == 3
+    assert "Traceback" in capsys.readouterr().err
 
 
-def test_cli_invalid_config_value(caplog: LogCaptureFixture) -> None:
-    """Test that the CLI exits with code 2 for an invalid pydantic value."""
-    with pytest.raises(SystemExit) as exc_info:
-        run_cli(
-            "analyze",
-            "./images",
-            "--cols",
-            "1",  # Invalid, must be >= 2
-            "--rows",
-            "6",
-            "--square-size",
-            "30",
-        )
-    assert exc_info.value.code == 2
-    assert "Configuration error" in caplog.text
-    assert "Input should be greater than or equal to 2" in caplog.text
+def test_invalid_configuration_is_exit_2(capsys: pytest.CaptureFixture[str]) -> None:
+    args = list(valid_args())
+    args[args.index("9")] = "1"
+    assert run_cli(*args) == 2
+    assert "Configuration error" in capsys.readouterr().err
+
+
+def test_quality_gate_failure_is_exit_1(tmp_path: Path) -> None:
+    result = Mock()
+    result.passed = False
+    result.dataset_metrics.accepted_count = 10
+    result.calibration.opencv_rms = 0.5
+    result.write_outputs.return_value = None
+    with patch("calibration_audit.cli.audit_dataset", return_value=result):
+        assert run_cli(*valid_args(), "--output", str(tmp_path / "out")) == 1
+    result.write_outputs.assert_called_once()

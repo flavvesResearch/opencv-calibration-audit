@@ -2,36 +2,28 @@
 
 [![PyPI Version](https://img.shields.io/pypi/v/opencv-calibration-audit?label=PyPI&cacheSeconds=300)](https://pypi.org/project/opencv-calibration-audit/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/opencv-calibration-audit?cacheSeconds=300)](https://pypi.org/project/opencv-calibration-audit/)
-[![License](https://img.shields.io/pypi/l/opencv-calibration-audit?cacheSeconds=300)](https://github.com/flavvesResearch/opencv-calibration-audit/blob/main/LICENSE)
+[![License](https://img.shields.io/pypi/l/opencv-calibration-audit?cacheSeconds=300)](LICENSE)
 
-**Audit OpenCV checkerboard calibration datasets, detect weak or duplicate views, visualize image-plane coverage, calibrate the camera, and generate an explainable offline report.**
+Audit OpenCV checkerboard calibration datasets, reject weak or duplicate views,
+visualize image-plane coverage, calibrate a monocular pinhole camera, and create
+an explainable offline report.
 
-This package provides a production-quality, installable tool to inspect and validate checkerboard image datasets used for monocular camera calibration with OpenCV. It's designed to be a reliable quality gate in computer vision and robotics pipelines.
-
-The main differentiator of this tool is its focus on dataset quality analysis, explainable rejection reasons for bad images, and comprehensive reporting, rather than just being a minimal wrapper around `cv2.calibrateCamera()`.
-
-This project is intended to complement the [`opencv-chessboard-generator`](https://pypi.org/project/opencv-chessboard-generator/) package.
-
-## Key Features
-
-- **Dataset Validation**: Checks for consistent image resolutions, sufficient image counts, and readable files.
-- **Checkerboard Detection**: Uses `cv2.findChessboardCornersSB` for robust corner detection.
-- **Image Quality Metrics**: Measures sharpness, board geometry, exposure, and perspective.
-- **Dataset-Level Analysis**: Analyzes field-of-view coverage, pose diversity (scale, orientation), and detects near-duplicate images.
-- **Camera Calibration**: Performs a standard pinhole camera calibration.
-- **Explainable Results**: Provides clear, structured reason codes for every rejected or flagged image.
-- **Rich Reporting**: Exports results to JSON, YAML, CSV, and a self-contained HTML report.
-- **CLI and Python API**: Usable as both a command-line tool and a Python library.
+Unlike a short `cv2.calibrateCamera()` script, this package inspects the input
+dataset first. It records why each image was accepted, warned, rejected, or
+unreadable and exports both human-readable and machine-readable evidence.
+Analysis is local and contains no telemetry or network requests.
 
 ## Installation
 
 ```bash
-pip install opencv-calibration-audit
+python -m pip install opencv-calibration-audit
 ```
 
-## Quick Start
+Python 3.9–3.13 is supported. The implementation uses
+`findChessboardCornersSB`, available in supported OpenCV 4.x releases and
+OpenCV 5.x. The default dependency is the headless OpenCV wheel.
 
-Run an audit on a directory of calibration images with the following command:
+## Five-minute quick start
 
 ```bash
 calibration-audit analyze ./calibration_images \
@@ -42,79 +34,167 @@ calibration-audit analyze ./calibration_images \
   --output ./audit_result
 ```
 
-### Important Convention: Inner Corners
+`--cols` and `--rows` always mean **inner corners**, not squares. A target with
+10 × 7 squares has 9 × 6 inner corners.
 
-The `--cols` and `--rows` arguments **always refer to the number of inner corners** on the checkerboard, not the number of squares.
+Example terminal summary:
 
-For a 10x7 checkerboard (10 squares by 7 squares), the number of inner corners is 9x6.
-
-```
-+---+---+---+---+
-| ● | ● | ● | ● |  <-- 4x3 inner corners
-+---+---+---+---+
-| ● | ● | ● | ● |
-+---+---+---+---+
-| ● | ● | ● | ● |
-+---+---+---+---+
+```text
+Quality gates: PASSED
+Accepted views: 12
+OpenCV RMS: 0.284931 px
+Report: audit_result/report.html
 ```
 
-## Python API Usage
+Useful stricter options:
+
+```bash
+calibration-audit analyze ./calibration_images \
+  --cols 9 --rows 6 --square-size 30 --unit mm \
+  --recursive \
+  --min-valid-images 12 \
+  --min-board-area 0.05 \
+  --max-per-view-error 1.0 \
+  --fail-on-warning \
+  --output ./audit_result
+```
+
+The command will not overwrite a non-empty output directory unless
+`--overwrite-output` is supplied.
+
+## Python API
 
 ```python
 from pathlib import Path
 
 from calibration_audit import AuditConfig, PatternSpec, audit_dataset
 
-# This is a future-state example; audit_dataset is not yet implemented in Phase 1
-# config = AuditConfig(
-#     pattern=PatternSpec(
-#         cols=9,
-#         rows=6,
-#         square_size=30.0,
-#         unit="mm",
-#     ),
-#     min_valid_images=12,
-# )
+config = AuditConfig(
+    pattern=PatternSpec(
+        cols=9,
+        rows=6,
+        square_size=30.0,
+        unit="mm",
+    ),
+    min_valid_images=12,
+)
 
-# result = audit_dataset(
-#     image_directory=Path("./calibration_images"),
-#     config=config,
-# )
+result = audit_dataset(
+    image_directory=Path("./calibration_images"),
+    config=config,
+)
 
-# print(result.summary)
-# result.write_outputs(Path("./audit_result"))
+print(result.summary)
+result.write_outputs(Path("./audit_result"))
 ```
 
-## Limitations (MVP)
+Library functions raise typed `CalibrationAuditError` subclasses and never
+call `sys.exit()`.
 
-The initial version focuses on monocular, pinhole camera calibration with standard checkerboards. The following are explicitly excluded from the MVP:
+## Output
 
-- Stereo, fisheye, or multi-camera calibration
-- ChArUco, ArUco, or circle-grid targets
-- Live camera capture or GUI interfaces
+```text
+audit_result/
+├── report.html
+├── summary.json
+├── images.csv
+├── calibration.yaml
+├── accepted.txt
+├── rejected.txt
+└── assets/
+    ├── coverage_heatmap.png
+    ├── reprojection_errors.png
+    └── thumbnails/
+```
+
+`report.html` embeds its charts, CSS, and data images and works offline without
+a CDN. Filenames are escaped. `summary.json` contains typed reason codes,
+configuration, dataset metrics, quality gates, calibration parameters, and
+per-image results. `calibration.yaml` uses an OpenCV-friendly matrix layout;
+it does not claim ROS camera-info compatibility.
+
+## What is measured
+
+- Detection rate: complete detections divided by readable images.
+- Sharpness: variance of Laplacian globally and inside the detected board.
+  With no user threshold, only clear dataset-relative outliers are warned.
+- Exposure: mean grayscale intensity and near-black/near-white ratios.
+- Board geometry: normalized center, area, rotation, perspective imbalance,
+  and border distance.
+- Coverage: occupied board-center cells in a 4 × 3 image-plane grid plus
+  corner-observation density.
+- Diversity: board-area distribution, occupied scale bins, rotation range,
+  and horizontal/vertical perspective ranges.
+- Duplicate pose: normalized position, log-area, rotation, and perspective
+  thresholds. The sharper of two near-identical views is kept.
+- Calibration: OpenCV pinhole RMS, camera matrix, distortion coefficients,
+  extrinsics, and per-view reprojection statistics.
+
+Per-view reprojection RMSE is:
+
+```text
+sqrt(mean((projected_x - observed_x)^2 + (projected_y - observed_y)^2))
+```
+
+The coverage and diversity assessments are heuristics, not physical
+measurements or a calibration certificate. Sharpness values are especially
+dependent on resolution, target scale, focus, and lens characteristics.
+
+The default near-duplicate component thresholds are: normalized center
+distance `0.03`, absolute log-area distance `0.08`, wrapped rotation distance
+`5°`, and combined perspective distance `0.08`. These are typed policy values
+in the Python API. The default relative-sharpness warning threshold is
+`0.35 ×` the dataset median.
+
+## Decisions and exit codes
+
+Every rejection includes a stable reason code, severity, message, measured
+value, and relevant threshold. High reprojection-error views are flagged after
+the initial calibration and are not silently removed or recalibrated.
+
+| Code | Meaning |
+| ---: | --- |
+| 0 | Audit completed and quality gates passed |
+| 1 | Audit completed but a configured quality gate failed |
+| 2 | Invalid arguments or invalid input dataset |
+| 3 | Unexpected processing/calibration failure |
+
+Tracebacks are hidden by default and shown only with `--log-level DEBUG`.
+
+## Input behavior
+
+Supported formats are JPEG, PNG, BMP, TIFF, and WebP. Files are processed in a
+deterministic sorted order. Unreadable images are reported individually.
+Mixed readable resolutions fail clearly and list their resolution groups.
+Source images are never deleted, moved, rewritten, or otherwise modified.
+Recursive discovery ignores symlinks that resolve outside the requested input
+tree.
+
+## Limitations
+
+The MVP supports standard black-and-white checkerboards, monocular calibration,
+and the pinhole camera model. It does not support stereo or fisheye
+calibration, ChArUco/ArUco, circle grids, live capture, ROS output, a GUI, PDF
+reports, automatic view pruning, or input-file modification.
+
+To generate a print-accurate target, use the companion
+[`opencv-chessboard-generator`](https://pypi.org/project/opencv-chessboard-generator/).
 
 ## Development
 
-To set up a development environment:
-
 ```bash
-# Clone the repository
-git clone https://github.com/flavvesResearch/opencv-calibration-audit.git
-cd opencv-calibration-audit
-
-# Install in editable mode with dev dependencies
-pip install -e .[dev]
-
-# Run tests
-pytest
-
-# Run linters and type checkers
+python -m pip install -e ".[dev]"
 ruff check .
 mypy .
+pytest --cov=calibration_audit --cov-report=term-missing
+python -m build
+twine check dist/*
 ```
 
-## CI/CD
+CI tests Python 3.9–3.13. Publishing is deliberately separate from ordinary CI
+and can run only for an explicitly published GitHub Release whose tag matches
+the project version.
 
-- Pushes and pull requests run Ruff, Mypy, Pytest, a build check, `twine check`, and a CLI smoke test in GitHub Actions.
-- After CI passes on `main`, GitHub Actions creates a unique `.postN` release tag, creates a GitHub Release, and publishes the package to PyPI.
-- Pushing a version tag that starts with `v` creates a GitHub Release and publishes the package to PyPI through Trusted Publishing.
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -1,102 +1,61 @@
-"""Unit tests for configuration and data models."""
+"""Configuration, enum, and unit-conversion tests."""
 
-from pathlib import Path
-from typing import Any
+from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from calibration_audit.config import AuditConfig
-from calibration_audit.models import PatternSpec
-
-
-def test_pattern_spec_valid() -> None:
-    """Test successful creation of a PatternSpec."""
-    spec = PatternSpec(cols=9, rows=6, square_size=30.0, unit="mm")
-    assert spec.cols == 9
-    assert spec.rows == 6
-    assert spec.square_size == 30.0
-    assert spec.unit == "mm"
-    assert spec.pattern_size == (9, 6)
+from calibration_audit import AuditConfig, PatternSpec
 
 
 @pytest.mark.parametrize(
-    "data, error_msg",
+    ("unit", "value", "metres"),
+    [("mm", 30.0, 0.03), ("cm", 3.0, 0.03), ("inch", 1.0, 0.0254), ("m", 0.5, 0.5)],
+)
+def test_unit_conversion(unit: str, value: float, metres: float) -> None:
+    pattern = PatternSpec(cols=9, rows=6, square_size=value, unit=unit)  # type: ignore[arg-type]
+    assert pattern.pattern_size == (9, 6)
+    assert pattern.square_size_metres == pytest.approx(metres)
+
+
+@pytest.mark.parametrize(
+    "data",
     [
-        ({"cols": 1, "rows": 6, "square_size": 30.0}, "Input should be greater than or equal to 2"),
-        ({"cols": 9, "rows": 1, "square_size": 30.0}, "Input should be greater than or equal to 2"),
-        ({"cols": 9, "rows": 6, "square_size": 0.0}, "Input should be greater than 0"),
-        ({"cols": 9, "rows": 6, "square_size": -1.0}, "Input should be greater than 0"),
-        (
-            {"cols": 9, "rows": 6, "square_size": 30.0, "unit": "kg"},
-            "Input should be 'mm', 'cm', 'inch' or 'm'",
-        ),
+        {"cols": 1, "rows": 6, "square_size": 1},
+        {"cols": 9, "rows": 1, "square_size": 1},
+        {"cols": 9, "rows": 6, "square_size": 0},
+        {"cols": 9, "rows": 6, "square_size": float("nan")},
+        {"cols": 9, "rows": 6, "square_size": float("inf")},
+        {"cols": 9, "rows": 6, "square_size": 1, "unit": "pixels"},
+        {"cols": 9, "rows": 6, "square_size": 1, "unknown": True},
     ],
 )
-def test_pattern_spec_invalid(data: dict[str, Any], error_msg: str) -> None:
-    """Test validation errors in PatternSpec."""
-    with pytest.raises(ValidationError) as exc_info:
-        PatternSpec(**data)
-    assert error_msg in str(exc_info.value)
+def test_invalid_pattern(data: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        PatternSpec.model_validate(data)
 
 
-def test_audit_config_creation() -> None:
-    """Test successful creation of an AuditConfig."""
-    pattern = PatternSpec(cols=9, rows=6, square_size=30.0, unit="mm")
-    config = AuditConfig(
-        image_directory=Path("/path/to/images"),
-        pattern=pattern,
-        output=Path("./output"),
-        recursive=False,
-        min_valid_images=12,
-        min_board_area=0.05,
-        max_board_area=0.85,
-        min_sharpness=None,
-        max_per_view_error=None,
-        disable_fallback_detector=False,
-        fail_on_warning=False,
-        overwrite_output=False,
-        log_level="DEBUG",
-    )
-    assert config.image_directory == Path("/path/to/images")
-    assert config.pattern.cols == 9
-    assert config.min_valid_images == 12
-    assert config.log_level == "DEBUG"
-    assert config.recursive is False
-    assert config.output == Path("./output")
+def test_config_defaults_and_policy_copy() -> None:
+    config = AuditConfig(pattern=PatternSpec(cols=9, rows=6, square_size=20))
+    assert config.output.name == "calibration-audit-output"
+    assert config.policy.min_valid_images == 10
+    assert config.policy.duplicate_center_distance == 0.03
 
 
-def test_audit_config_defaults() -> None:
-    """Test that AuditConfig default values are set correctly."""
-    pattern = PatternSpec(cols=9, rows=6, square_size=30.0, unit="mm")
-    config = AuditConfig(
-        image_directory=Path("."),
-        pattern=pattern,
-        output=Path("./calibration-audit-output"),
-        recursive=False,
-        min_valid_images=10,
-        min_board_area=0.03,
-        max_board_area=0.90,
-        min_sharpness=None,
-        max_per_view_error=None,
-        disable_fallback_detector=False,
-        fail_on_warning=False,
-        overwrite_output=False,
-        log_level="INFO",
-    )
-
-    assert config.output == Path("./calibration-audit-output")
-    assert config.recursive is False
-    assert config.min_valid_images == 10
-    assert config.min_board_area == 0.03
-    assert config.max_board_area == 0.90
-    assert config.min_sharpness is None
-    assert config.max_per_view_error is None
-    assert config.disable_fallback_detector is False
-    assert config.fail_on_warning is False
-    assert config.overwrite_output is False
-    assert config.log_level == "INFO"
-
-
-# The CLI part of the test will be in a separate file for clarity.
-# This file focuses on direct model validation.
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"min_board_area": 0.5, "max_board_area": 0.5},
+        {"min_board_area": 0.8, "max_board_area": 0.2},
+        {"min_valid_images": 0},
+        {"coverage_cols": 0},
+        {"max_file_size_mb": 0},
+        {"log_level": "VERBOSE"},
+    ],
+)
+def test_invalid_config(values: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        AuditConfig(
+            pattern=PatternSpec(cols=9, rows=6, square_size=20),
+            **values,  # type: ignore[arg-type]
+        )

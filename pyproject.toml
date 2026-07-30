@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opencv-calibration-audit"
-version = "0.1.2"
+version = "0.2.0"
 description = "Audit OpenCV checkerboard calibration datasets, detect weak or duplicate views, visualize image-plane coverage, calibrate the camera, and generate an explainable offline report."
 readme = "README.md"
 license = "MIT"
@@ -26,10 +26,11 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "numpy",
-    "opencv-python-headless",
-    "PyYAML",
-    "pydantic",
+    "jinja2>=3.1",
+    "numpy>=1.23",
+    "opencv-python-headless>=4.5.1",
+    "PyYAML>=5.4",
+    "pydantic>=2.7",
     "eval-type-backport; python_version < \"3.10\"",
 ]
 
@@ -60,7 +61,14 @@ line-length = 100
 [tool.mypy]
 packages = ["calibration_audit"]
 strict = true
+exclude = ["tests", "build", "dist"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"
+addopts = "--strict-markers"
