@@ -61,7 +61,7 @@ jobs:
         if: ${{ steps.tag_check.outputs.exists == 'false' }}
         run: |
           tag_name="${{ steps.version.outputs.tag_name }}"
-          git tag -a "$tag_name" -m "Release $tag_name"
+          git tag "$tag_name"
           git push origin "$tag_name"
 
       - name: Derive release version from tag
