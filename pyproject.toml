@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opencv-calibration-audit"
+version = "0.1.0"
+description = "Audit OpenCV checkerboard calibration datasets, detect weak or duplicate views, visualize image-plane coverage, calibrate the camera, and generate an explainable offline report."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "numpy",
+    "opencv-python-headless",
+    "PyYAML",
+    "pydantic",
+]
+
+[project.urls]
+Homepage = "https://example.com" # Replace with actual URL later
+
+[project.scripts]
+calibration-audit = "calibration_audit.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "build",
+    "twine",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+packages = ["calibration_audit"]
+strict = true
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"
