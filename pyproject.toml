@@ -30,6 +30,7 @@ dependencies = [
     "opencv-python-headless",
     "PyYAML",
     "pydantic",
+    "eval-type-backport; python_version < \"3.10\"",
 ]
 
 [project.urls]
