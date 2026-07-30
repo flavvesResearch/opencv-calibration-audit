@@ -1,9 +1,17 @@
 name: Release
 
 on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,8 +19,9 @@ permissions:
 
 jobs:
   publish:
-    name: Build, release, and publish
+    name: Tag, release, and publish to PyPI
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     environment:
       name: pypi
@@ -22,27 +31,77 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
 
-      - name: Derive release version from tag
+      - name: Resolve release version
+        id: version
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           import os
+          import re
 
-          version = os.environ['VERSION'].lstrip('v')
-          path = Path('pyproject.toml')
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          ref_name = os.environ["GITHUB_REF_NAME"]
+
+          if event_name == "push" and ref_name.startswith("v"):
+              tag_name = ref_name
+              version = tag_name.removeprefix("v")
+          else:
+              text = Path("pyproject.toml").read_text()
+              match = re.search(r'^version = "(\d+\.\d+\.\d+)"$', text, re.M)
+
+              if match is None:
+                  raise SystemExit("version not found")
+
+              run_number = os.environ.get("WORKFLOW_RUN_NUMBER") or os.environ["GITHUB_RUN_NUMBER"]
+              version = f"{match.group(1)}.post{run_number}"
+              tag_name = f"v{version}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+              output.write(f"tag_name={tag_name}\n")
+          PY
+        env:
+          WORKFLOW_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+
+      - name: Check whether tag already exists
+        id: tag_check
+        run: |
+          tag_name="${{ steps.version.outputs.tag_name }}"
+          if git ls-remote --tags origin "refs/tags/${tag_name}" | grep -q "${tag_name}"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: ${{ github.event_name != 'push' && steps.tag_check.outputs.exists == 'false' }}
+        run: |
+          tag_name="${{ steps.version.outputs.tag_name }}"
+          git tag "$tag_name"
+          git push origin "$tag_name"
+
+      - name: Apply release version to package metadata
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          version = os.environ["VERSION"]
+          path = Path("pyproject.toml")
           text = path.read_text()
           updated = re.sub(r'^version = ".*"$', f'version = "{version}"', text, count=1, flags=re.M)
 
           if updated == text:
-              raise SystemExit('version line not updated')
+              raise SystemExit("version line not updated")
 
           path.write_text(updated)
           PY
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -73,9 +132,23 @@ jobs:
       - name: Smoke test CLI version output
         run: calibration-audit --version
 
+      - name: Check whether GitHub release already exists
+        id: release_check
+        run: |
+          if gh release view "${{ steps.version.outputs.tag_name }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Create GitHub release
+        if: ${{ steps.release_check.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          target_commitish: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           generate_release_notes: true
           files: |
             dist/*
