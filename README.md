@@ -236,11 +236,12 @@ python -m build
 twine check dist/*
 ```
 
-CI tests Python 3.10–3.13 plus explicit OpenCV 4.11 and 5.x jobs. Ordinary
-pushes and merges do not publish. After CI succeeds, a maintainer must
-explicitly publish a GitHub Release whose tag matches the version in
-`pyproject.toml`; that release triggers the separate PyPI Trusted Publishing
-workflow.
+CI tests Python 3.10–3.13 plus explicit OpenCV 4.11 and 5.x jobs. After a
+successful `main` CI run, `auto-release.yml` creates the version tag and GitHub
+Release when the version in `pyproject.toml` has not already been released.
+It then dispatches the separate `release.yml` PyPI Trusted Publishing workflow.
+Manually published GitHub Releases also trigger `release.yml`. Commits that
+retain an already released version are safely skipped.
 
 ## License
 
