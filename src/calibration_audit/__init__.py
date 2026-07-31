@@ -5,7 +5,7 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     __version__ = version("opencv-calibration-audit")
 except PackageNotFoundError:
-    __version__ = "0.2.0"
+    __version__ = "0.2.1"
 
 from .config import AuditConfig, AuditPolicy
 from .exceptions import (
@@ -15,6 +15,7 @@ from .exceptions import (
     InsufficientViewsError,
     InvalidConfigurationError,
     OutputExistsError,
+    UnsupportedImageError,
 )
 from .models import (
     AuditReason,
@@ -53,6 +54,7 @@ __all__ = [
     "ReasonCode",
     "ReprojectionStats",
     "Severity",
+    "UnsupportedImageError",
     "__version__",
     "audit_dataset",
 ]

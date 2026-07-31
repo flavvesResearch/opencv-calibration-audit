@@ -9,16 +9,18 @@ from datetime import datetime
 from pathlib import Path
 from statistics import median
 
+import cv2
 import numpy as np
 import numpy.typing as npt
 
 from .calibration import calibrate
 from .config import AuditConfig
 from .detection import detect_checkerboard
-from .exceptions import DatasetValidationError, InsufficientViewsError
-from .io import discover_images, load_image
+from .exceptions import DatasetValidationError, InsufficientViewsError, UnsupportedImageError
+from .io import discover_images, load_image, validate_output_location
 from .metrics import (
     board_geometry,
+    circular_range_degrees,
     coverage_metrics,
     exposure_metrics,
     is_duplicate_pose,
@@ -184,7 +186,7 @@ def _diversity(
         float(np.median(areas)),
         float(quartiles[1] - quartiles[0]),
         occupied_bins,
-        max(rotations) - min(rotations) if rotations else None,
+        circular_range_degrees(rotations) if rotations else None,
         max(horizontal) - min(horizontal) if horizontal else None,
         max(vertical) - min(vertical) if vertical else None,
     )
@@ -194,6 +196,7 @@ def audit_dataset(image_directory: Path, config: AuditConfig) -> AuditResult:
     """Audit, calibrate, and return typed results without writing output files."""
 
     directory = Path(image_directory)
+    validate_output_location(directory, config.output, recursive=config.recursive)
     paths = discover_images(directory, recursive=config.recursive)
     results: list[ImageAuditResult] = []
     corner_arrays: dict[str, npt.NDArray[np.float32]] = {}
@@ -204,7 +207,9 @@ def audit_dataset(image_directory: Path, config: AuditConfig) -> AuditResult:
         relative = path.relative_to(directory).as_posix()
         log.info("Processing image %d/%d: %s", index, len(paths), relative)
         try:
-            _, gray, channels = load_image(path, max_file_size_bytes=max_bytes)
+            _, gray, channels, original_dtype, original_bit_depth = load_image(
+                path, max_file_size_bytes=max_bytes
+            )
         except DatasetValidationError as exc:
             results.append(
                 ImageAuditResult(
@@ -213,7 +218,11 @@ def audit_dataset(image_directory: Path, config: AuditConfig) -> AuditResult:
                     state=ImageState.UNREADABLE,
                     reasons=[
                         _reason(
-                            ReasonCode.IMAGE_UNREADABLE,
+                            (
+                                ReasonCode.UNSUPPORTED_IMAGE
+                                if isinstance(exc, UnsupportedImageError)
+                                else ReasonCode.IMAGE_UNREADABLE
+                            ),
                             Severity.ERROR,
                             str(exc),
                         )
@@ -229,6 +238,8 @@ def audit_dataset(image_directory: Path, config: AuditConfig) -> AuditResult:
             width=width,
             height=height,
             channels=channels,
+            original_dtype=original_dtype,
+            original_bit_depth=original_bit_depth,
             file_size=_file_size(path),
         )
         found, corners, method, duration = detect_checkerboard(
@@ -266,6 +277,7 @@ def audit_dataset(image_directory: Path, config: AuditConfig) -> AuditResult:
 
         geometry = board_geometry(corners, config.pattern, (width, height))
         metrics.board_center = geometry["board_center"]
+        metrics.board_boundary = geometry["board_boundary"]
         metrics.board_area_ratio = geometry["board_area_ratio"]
         metrics.rotation_degrees = geometry["rotation_degrees"]
         metrics.horizontal_perspective = geometry["horizontal_perspective"]
@@ -312,7 +324,7 @@ def audit_dataset(image_directory: Path, config: AuditConfig) -> AuditResult:
                 _reason(
                     ReasonCode.BOARD_CLIPPED_OR_NEAR_BORDER,
                     Severity.WARNING,
-                    "Outermost detected corners are close to an image border.",
+                    "Estimated physical board boundary is clipped or close to an image border.",
                     metrics.border_distance_ratio,
                     config.near_border_ratio,
                 )
@@ -510,6 +522,7 @@ def audit_dataset(image_directory: Path, config: AuditConfig) -> AuditResult:
     configuration = config.model_dump(mode="json", exclude={"image_directory", "output"})
     result = AuditResult(
         tool_version=__version__,
+        opencv_version=cv2.__version__,
         generated_at=datetime.now().astimezone().isoformat(),
         input_directory=".",
         configuration=configuration,

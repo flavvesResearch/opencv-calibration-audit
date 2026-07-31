@@ -43,8 +43,17 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--rows", type=int, required=True, help="Inner corners vertically.")
     analyze.add_argument("--square-size", type=float, required=True)
     analyze.add_argument("--unit", choices=["mm", "cm", "inch", "m"], default="mm")
-    analyze.add_argument("--output", type=Path, default=Path("./calibration-audit-output"))
-    analyze.add_argument("--recursive", action="store_true")
+    analyze.add_argument(
+        "--output",
+        type=Path,
+        default=Path("./calibration-audit-output"),
+        help="Report directory; must be outside the input tree with --recursive.",
+    )
+    analyze.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Scan subdirectories; rejects an output directory inside the input tree.",
+    )
     analyze.add_argument("--min-valid-images", type=int, default=10)
     analyze.add_argument("--min-board-area", type=float, default=0.03)
     analyze.add_argument("--max-board-area", type=float, default=0.90)

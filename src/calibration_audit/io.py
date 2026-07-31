@@ -10,9 +10,28 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from .exceptions import DatasetValidationError
+from .exceptions import DatasetValidationError, UnsupportedImageError
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+
+
+def validate_output_location(
+    input_directory: Path, output_directory: Path, *, recursive: bool
+) -> None:
+    """Reject recursive audits whose output resolves inside the input tree."""
+
+    if not recursive:
+        return
+    input_root = input_directory.resolve()
+    output_root = output_directory.resolve()
+    try:
+        output_root.relative_to(input_root)
+    except ValueError:
+        return
+    raise DatasetValidationError(
+        "The output directory cannot be inside the input directory during a recursive audit: "
+        f"{output_directory}"
+    )
 
 
 def discover_images(directory: Path, *, recursive: bool = False) -> list[Path]:
@@ -51,8 +70,14 @@ def discover_images(directory: Path, *, recursive: bool = False) -> list[Path]:
 
 def load_image(
     path: Path, *, max_file_size_bytes: int
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], int]:
-    """Load an image and return original pixels, grayscale pixels, and channel count."""
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8], int, str, int]:
+    """Load and normalize an image for analysis.
+
+    Unsigned 16-bit samples use a fixed full-range mapping equivalent to
+    ``value / 257``. Per-image contrast stretching is deliberately avoided so
+    exposure measurements remain comparable. Signed and floating-point images
+    are rejected explicitly.
+    """
 
     try:
         size = path.stat().st_size
@@ -71,20 +96,34 @@ def load_image(
     if image is None or image.size == 0:
         raise DatasetValidationError(f"OpenCV could not decode image: {path.name}")
 
-    if image.ndim == 2:
-        gray = image
+    original_dtype = image.dtype.name
+    bit_depth = image.dtype.itemsize * 8
+    if image.dtype == np.uint8:
+        analysis = image
+    elif image.dtype == np.uint16:
+        analysis = ((image.astype(np.uint32) + 128) // 257).astype(np.uint8)
+    else:
+        raise UnsupportedImageError(
+            f"Unsupported image dtype {original_dtype} ({bit_depth}-bit): {path.name}. "
+            "Supported sample dtypes are uint8 and uint16."
+        )
+
+    if analysis.ndim == 2:
+        gray = analysis
         channels = 1
-    elif image.ndim == 3 and image.shape[2] == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    elif analysis.ndim == 3 and analysis.shape[2] == 3:
+        gray = cv2.cvtColor(analysis, cv2.COLOR_BGR2GRAY)
         channels = 3
-    elif image.ndim == 3 and image.shape[2] == 4:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGRA2GRAY)
+    elif analysis.ndim == 3 and analysis.shape[2] == 4:
+        gray = cv2.cvtColor(analysis, cv2.COLOR_BGRA2GRAY)
         channels = 4
     else:
-        shape = "x".join(str(value) for value in image.shape)
-        raise DatasetValidationError(f"Unsupported channel layout ({shape}): {path.name}")
+        shape = "x".join(str(value) for value in analysis.shape)
+        raise UnsupportedImageError(f"Unsupported channel layout ({shape}): {path.name}")
     return (
-        cast(npt.NDArray[np.uint8], image),
+        cast(npt.NDArray[np.uint8], analysis),
         cast(npt.NDArray[np.uint8], gray),
         channels,
+        original_dtype,
+        bit_depth,
     )

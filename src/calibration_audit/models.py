@@ -77,6 +77,8 @@ class ImageMetrics(BaseModel):
     width: int | None = None
     height: int | None = None
     channels: int | None = None
+    original_dtype: str | None = None
+    original_bit_depth: int | None = None
     file_size: int
     global_sharpness: float | None = None
     board_sharpness: float | None = None
@@ -87,6 +89,7 @@ class ImageMetrics(BaseModel):
     near_black_ratio: float | None = None
     near_white_ratio: float | None = None
     board_center: tuple[float, float] | None = None
+    board_boundary: list[list[float]] | None = None
     board_area_ratio: float | None = None
     rotation_degrees: float | None = None
     horizontal_perspective: float | None = None
@@ -178,6 +181,7 @@ class AuditResult(BaseModel):
 
     schema_version: int = 1
     tool_version: str
+    opencv_version: str | None = None
     generated_at: str
     input_directory: str
     configuration: dict[str, Any]

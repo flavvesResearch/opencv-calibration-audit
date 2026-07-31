@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,8 @@ import jinja2
 import numpy as np
 import yaml
 
-from ..exceptions import OutputExistsError
+from ..exceptions import DatasetValidationError, OutputExistsError
+from ..io import load_image, validate_output_location
 from ..models import AuditResult, ImageState
 
 _HTML_TEMPLATE = """<!doctype html>
@@ -22,10 +25,14 @@ _HTML_TEMPLATE = """<!doctype html>
 body{font:15px system-ui,sans-serif;margin:0;color:#18212b;background:#f4f7fa}
 main{max-width:1100px;margin:auto;padding:28px}section{background:white;padding:20px;margin:16px 0;border-radius:10px}
 h1,h2{margin-top:0}.pass{color:#087f5b}.fail,.rejected,.unreadable{color:#c92a2a}
-table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top}
 code{white-space:pre-wrap}img{max-width:100%;height:auto}.warning{color:#e67700}
 .bar-row{display:grid;grid-template-columns:180px 1fr 90px;gap:10px;align-items:center;margin:7px 0}
 .bar-track{height:12px;background:#e9ecef;border-radius:6px;overflow:hidden}.bar-fill{height:100%;background:#1971c2}
+.image-preview{width:240px;border-radius:6px;background:#e9ecef}.preview-missing{width:220px;padding:36px 10px;background:#e9ecef;text-align:center}
+.image-row.rejected,.image-row.unreadable{background:#fff5f5}.image-row.warning{background:#fff9db}
+.decision{font-weight:700}.reason{margin:0 0 8px}.reason-error strong{color:#c92a2a}.reason-warning strong{color:#e67700}
+.severity{font-size:11px;border:1px solid currentColor;border-radius:3px;padding:1px 4px}
 </style></head><body><main>
 <h1>OpenCV Calibration Audit</h1>
 <section><h2>Executive summary</h2><p class="{{ 'pass' if passed else 'fail' }}">
@@ -50,19 +57,36 @@ vertical {{ metrics.vertical_perspective_range }}</li></ul>
 <p>These assessments are heuristic, not a physical certificate.</p></section>
 <section><h2>Calibration parameters</h2><pre><code>{{ calibration_json }}</code></pre></section>
 <section><h2>Reprojection-error chart</h2><img alt="Per-view reprojection errors" src="data:image/png;base64,{{ errors }}"></section>
-<section><h2>Accepted, warning, and rejected images</h2><table><thead><tr>
-<th>Image</th><th>State</th><th>Detector</th><th>Board area</th><th>Sharpness</th><th>RMSE</th><th>Reasons</th>
-</tr></thead><tbody>{% for image in images %}<tr><td>{{ image.relative_path }}</td>
-<td class="{{ image.state.value|lower }}">{{ image.state.value }}</td><td>{{ image.detection_method or '' }}</td>
-<td>{{ image.metrics.board_area_ratio if image.metrics.board_area_ratio is not none else '' }}</td>
-<td>{{ image.metrics.board_sharpness if image.metrics.board_sharpness is not none else '' }}</td>
-<td>{{ image.reprojection.rmse_px if image.reprojection else '' }}</td>
-<td>{{ image.reasons|map(attribute='code.value')|join(', ') }}</td></tr>{% endfor %}</tbody></table></section>
+<section><h2>Accepted, warning, and rejected images</h2>
+<p>Annotated previews show detected inner corners and the evaluated physical board boundary.</p>
+<table><thead><tr><th>Preview</th><th>Image and decision</th><th>Metrics</th><th>Decision details</th>
+</tr></thead><tbody>{% for row in image_rows %}{% set image = row.image %}
+<tr class="{{ image.state.value|lower }} image-row"><td>
+{% if row.preview %}<img class="image-preview" alt="Annotated preview for {{ image.relative_path }}"
+src="data:image/jpeg;base64,{{ row.preview }}">{% else %}
+<div class="preview-missing">Preview unavailable</div>{% endif %}</td>
+<td><strong>{{ image.relative_path }}</strong><br><span>{{ image.state.value }}</span><br>
+<span class="decision">{{ row.decision_stage }}</span><br>Detector: {{ image.detection_method or 'n/a' }}</td>
+<td>Physical board area: {{ image.metrics.board_area_ratio if image.metrics.board_area_ratio is not none else 'n/a' }}<br>
+Board sharpness: {{ image.metrics.board_sharpness if image.metrics.board_sharpness is not none else 'n/a' }}<br>
+In-sample RMSE: {{ image.reprojection.rmse_px if image.reprojection else 'n/a' }}</td>
+<td>{% if image.reasons %}<ul>{% for reason in image.reasons %}
+<li class="reason reason-{{ reason.severity.value|lower }}"><strong>{{ reason.code.value }}</strong>
+<span class="severity">{{ reason.severity.value }}</span><br>{{ reason.message }}<br>
+Measured: <code>{{ reason.measured_value if reason.measured_value is not none else 'n/a' }}</code>;
+Threshold/rule: <code>{{ reason.threshold if reason.threshold is not none else 'n/a' }}</code></li>
+{% endfor %}</ul>{% else %}No warnings or rejection reasons.{% endif %}</td></tr>
+{% endfor %}</tbody></table></section>
 <section><h2>Configuration and tool version</h2><p>Version {{ tool_version }}; generated {{ generated_at }}</p>
 <pre><code>{{ configuration_json }}</code></pre></section>
 <section><h2>Metric limitations</h2><p>Sharpness depends on resolution, optics, and target scale.
-Coverage and diversity thresholds are heuristics. Calibration results apply only to the accepted dataset and pinhole model.</p></section>
+Coverage and diversity thresholds are heuristics. Per-view reprojection error is an in-sample residual:
+it is calculated after fitting the camera model on the same accepted dataset and is not independent validation.
+Calibration results apply only to the accepted dataset and pinhole model.</p></section>
 </main></body></html>"""
+
+_MANIFEST_NAME = "report-manifest.json"
+_LEGACY_THUMBNAIL = re.compile(r"^[0-9]{4}\.jpg$")
 
 
 def _png_bytes(image: np.ndarray[Any, Any]) -> bytes:
@@ -147,16 +171,115 @@ def _sharpness_bars(result: AuditResult) -> list[dict[str, float | str]]:
     ]
 
 
+def _safe_managed_path(output: Path, relative_path: str) -> Path | None:
+    relative = Path(relative_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    candidate = output / relative
+    try:
+        candidate.resolve().relative_to(output.resolve())
+    except (DatasetValidationError, OSError, ValueError):
+        return None
+    return candidate
+
+
+def _remove_previous_managed_files(output: Path) -> None:
+    """Remove files declared by the prior manifest plus legacy numbered previews."""
+
+    manifest = output / _MANIFEST_NAME
+    if manifest.is_file():
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            generated = payload.get("generated_files", [])
+        except (OSError, json.JSONDecodeError, AttributeError):
+            generated = []
+        if isinstance(generated, list):
+            for relative_path in generated:
+                if not isinstance(relative_path, str):
+                    continue
+                candidate = _safe_managed_path(output, relative_path)
+                if candidate is not None and (candidate.is_file() or candidate.is_symlink()):
+                    candidate.unlink()
+
+    legacy_directory = output / "assets" / "thumbnails"
+    if legacy_directory.is_dir():
+        for candidate in legacy_directory.iterdir():
+            if candidate.is_file() and _LEGACY_THUMBNAIL.fullmatch(candidate.name):
+                candidate.unlink()
+
+
+def _decision_stage(image_state: ImageState, reason_codes: set[str]) -> str:
+    if image_state in (ImageState.REJECTED, ImageState.UNREADABLE):
+        return "Rejected before calibration"
+    if "HIGH_REPROJECTION_ERROR" in reason_codes:
+        return "Flagged after calibration"
+    if image_state == ImageState.WARNING:
+        return "Accepted with warning"
+    return "Accepted for calibration"
+
+
+def _annotated_preview(
+    result: AuditResult, relative_path: str, corners: list[list[float]], boundary: list[list[float]] | None
+) -> bytes | None:
+    source = result.source_directory / relative_path
+    try:
+        source.resolve().relative_to(result.source_directory.resolve())
+        maximum = int(result.configuration.get("max_file_size_mb", 100)) * 1024 * 1024
+        analysis, _, channels, _, _ = load_image(source, max_file_size_bytes=maximum)
+    except (DatasetValidationError, OSError, ValueError):
+        return None
+    if channels == 1:
+        preview = cv2.cvtColor(analysis, cv2.COLOR_GRAY2BGR)
+    elif channels == 4:
+        preview = cv2.cvtColor(analysis, cv2.COLOR_BGRA2BGR)
+    else:
+        preview = analysis.copy()
+    height, width = preview.shape[:2]
+    if boundary:
+        polygon = np.asarray(boundary, dtype=np.float64)
+        polygon[:, 0] = np.clip(polygon[:, 0], 0, max(0, width - 1))
+        polygon[:, 1] = np.clip(polygon[:, 1], 0, max(0, height - 1))
+        cv2.polylines(
+            preview,
+            [polygon.astype(np.int32)],
+            isClosed=True,
+            color=(255, 0, 255),
+            thickness=3,
+            lineType=cv2.LINE_AA,
+        )
+    for x, y in corners:
+        point = (
+            int(np.clip(x, 0, max(0, width - 1))),
+            int(np.clip(y, 0, max(0, height - 1))),
+        )
+        cv2.circle(preview, point, 3, (255, 255, 0), -1, lineType=cv2.LINE_AA)
+    scale = min(1.0, 320.0 / max(width, height, 1))
+    thumbnail = cv2.resize(
+        preview,
+        (max(1, int(width * scale)), max(1, int(height * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+    success, encoded = cv2.imencode(".jpg", thumbnail, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return encoded.tobytes() if success else None
+
+
 def write_outputs(result: AuditResult, output_directory: Path, *, overwrite: bool = False) -> None:
     """Write the complete deterministic output set."""
 
     output = Path(output_directory)
+    validate_output_location(
+        result.source_directory,
+        output,
+        recursive=bool(result.configuration.get("recursive", False)),
+    )
     if output.exists() and not output.is_dir():
         raise OutputExistsError(f"Output path is not a directory: {output}")
     if output.exists() and any(output.iterdir()) and not overwrite:
         raise OutputExistsError(
             f"Output directory is not empty: {output}. Use overwrite=True or --overwrite-output."
         )
+    if output.exists() and overwrite:
+        _remove_previous_managed_files(output)
     assets = output / "assets"
     thumbnails = assets / "thumbnails"
     thumbnails.mkdir(parents=True, exist_ok=True)
@@ -176,6 +299,8 @@ def write_outputs(result: AuditResult, output_directory: Path, *, overwrite: boo
         "resolution",
         "detection_success",
         "detection_method",
+        "original_dtype",
+        "original_bit_depth",
         "global_sharpness",
         "board_sharpness",
         "board_center_x",
@@ -205,6 +330,8 @@ def write_outputs(result: AuditResult, output_directory: Path, *, overwrite: boo
                     ),
                     "detection_success": image.detection_success,
                     "detection_method": image.detection_method or "",
+                    "original_dtype": image.metrics.original_dtype or "",
+                    "original_bit_depth": image.metrics.original_bit_depth or "",
                     "global_sharpness": image.metrics.global_sharpness,
                     "board_sharpness": image.metrics.board_sharpness,
                     "board_center_x": center[0] if center else "",
@@ -243,33 +370,45 @@ def write_outputs(result: AuditResult, output_directory: Path, *, overwrite: boo
     errors = _error_chart(result)
     (assets / "coverage_heatmap.png").write_bytes(heatmap)
     (assets / "reprojection_errors.png").write_bytes(errors)
-    input_root = result.source_directory
-    try:
-        resolved_input_root = input_root.resolve()
-    except OSError:
-        resolved_input_root = input_root
-    for index, image_result in enumerate(result.images):
-        if not image_result.read_success:
-            continue
-        source = input_root / image_result.relative_path
-        try:
-            source.resolve().relative_to(resolved_input_root)
-            encoded_source = np.fromfile(source, dtype=np.uint8)
-            source_image = cv2.imdecode(encoded_source, cv2.IMREAD_COLOR)
-        except (OSError, ValueError):
-            source_image = None
-        if source_image is None:
-            continue
-        height, width = source_image.shape[:2]
-        scale = min(1.0, 240.0 / max(width, 1))
-        thumbnail = cv2.resize(
-            source_image,
-            (max(1, int(width * scale)), max(1, int(height * scale))),
-            interpolation=cv2.INTER_AREA,
+    generated_files = {
+        "accepted.txt",
+        "assets/coverage_heatmap.png",
+        "assets/reprojection_errors.png",
+        "calibration.yaml",
+        "images.csv",
+        "rejected.txt",
+        "report.html",
+        _MANIFEST_NAME,
+        "summary.json",
+    }
+    image_rows: list[dict[str, Any]] = []
+    for image_result in result.images:
+        preview = None
+        if image_result.read_success:
+            preview_bytes = _annotated_preview(
+                result,
+                image_result.relative_path,
+                image_result.corners,
+                image_result.metrics.board_boundary,
+            )
+            if preview_bytes is not None:
+                identifier = hashlib.sha256(
+                    image_result.relative_path.encode("utf-8")
+                ).hexdigest()[:20]
+                relative_thumbnail = f"assets/thumbnails/{identifier}.jpg"
+                (output / relative_thumbnail).write_bytes(preview_bytes)
+                generated_files.add(relative_thumbnail)
+                preview = base64.b64encode(preview_bytes).decode("ascii")
+        image_rows.append(
+            {
+                "image": image_result,
+                "preview": preview,
+                "decision_stage": _decision_stage(
+                    image_result.state,
+                    {reason.code.value for reason in image_result.reasons},
+                ),
+            }
         )
-        success, encoded_thumbnail = cv2.imencode(".jpg", thumbnail)
-        if success:
-            (thumbnails / f"{index:04d}.jpg").write_bytes(encoded_thumbnail.tobytes())
     environment = jinja2.Environment(autoescape=True)
     template = environment.from_string(_HTML_TEMPLATE)
     html = template.render(
@@ -277,7 +416,7 @@ def write_outputs(result: AuditResult, output_directory: Path, *, overwrite: boo
         metrics=result.dataset_metrics,
         calibration=result.calibration,
         gates=result.quality_gates,
-        images=result.images,
+        image_rows=image_rows,
         tool_version=result.tool_version,
         generated_at=result.generated_at,
         metrics_json=json.dumps(result.dataset_metrics.model_dump(mode="json"), indent=2),
@@ -288,3 +427,13 @@ def write_outputs(result: AuditResult, output_directory: Path, *, overwrite: boo
         sharpness_bars=_sharpness_bars(result),
     )
     (output / "report.html").write_text(html, encoding="utf-8")
+    (output / _MANIFEST_NAME).write_text(
+        json.dumps(
+            {
+                "manifest_version": 1,
+                "generated_files": sorted(generated_files),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )

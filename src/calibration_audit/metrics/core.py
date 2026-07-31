@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from typing import TypedDict
 
 import cv2
@@ -15,6 +16,7 @@ from ..models import ImageMetrics, PatternSpec
 
 class GeometryMetrics(TypedDict):
     board_center: tuple[float, float]
+    board_boundary: list[list[float]]
     board_area_ratio: float
     rotation_degrees: float
     horizontal_perspective: float
@@ -31,7 +33,14 @@ def board_geometry(
     pattern: PatternSpec,
     image_size: tuple[int, int],
 ) -> GeometryMetrics:
-    """Calculate normalized geometry from the four outermost inner corners."""
+    """Calculate geometry using an extrapolated physical checkerboard boundary.
+
+    The detected grid consists of inner corners. A homography projects a
+    boundary one square beyond each outer inner-corner row and column, matching
+    the physical extent of a checkerboard with ``cols + 1`` by ``rows + 1``
+    squares. The sharpness metric intentionally remains based on the
+    conservative inner-corner hull.
+    """
 
     width, height = image_size
     expected = pattern.cols * pattern.rows
@@ -47,23 +56,38 @@ def board_geometry(
         ],
         dtype=np.float32,
     )
+    logical_corners = np.asarray(
+        [[x, y] for y in range(pattern.rows) for x in range(pattern.cols)],
+        dtype=np.float32,
+    )
+    homography, _ = cv2.findHomography(logical_corners, points, method=0)
+    if homography is None or not np.isfinite(homography).all():
+        raise ValueError("Could not estimate a finite physical board boundary")
+    logical_boundary = np.asarray(
+        [[-1.0, -1.0], [pattern.cols, -1.0], [pattern.cols, pattern.rows], [-1.0, pattern.rows]],
+        dtype=np.float32,
+    ).reshape(-1, 1, 2)
+    boundary = cv2.perspectiveTransform(logical_boundary, homography).reshape(-1, 2)
+    if not np.isfinite(boundary).all():
+        raise ValueError("Estimated physical board boundary is not finite")
     center = np.mean(quad, axis=0)
-    area = abs(float(cv2.contourArea(quad))) / float(width * height)
+    area = abs(float(cv2.contourArea(boundary))) / float(width * height)
     top = _distance(quad[0], quad[1])
     bottom = _distance(quad[3], quad[2])
     left = _distance(quad[0], quad[3])
     right = _distance(quad[1], quad[2])
-    horizontal = abs(top - bottom) / max(top, bottom, 1e-12)
-    vertical = abs(left - right) / max(left, right, 1e-12)
+    horizontal = (top - bottom) / max(top, bottom, 1e-12)
+    vertical = (left - right) / max(left, right, 1e-12)
     angle = math.degrees(math.atan2(float(quad[1, 1] - quad[0, 1]), float(quad[1, 0] - quad[0, 0])))
     border = min(
-        float(np.min(quad[:, 0])) / width,
-        float(np.min(quad[:, 1])) / height,
-        float(width - 1 - np.max(quad[:, 0])) / width,
-        float(height - 1 - np.max(quad[:, 1])) / height,
+        float(np.min(boundary[:, 0])) / width,
+        float(np.min(boundary[:, 1])) / height,
+        float(width - 1 - np.max(boundary[:, 0])) / width,
+        float(height - 1 - np.max(boundary[:, 1])) / height,
     )
     return {
         "board_center": (float(center[0] / width), float(center[1] / height)),
+        "board_boundary": boundary.astype(float).tolist(),
         "board_area_ratio": area,
         "rotation_degrees": angle,
         "horizontal_perspective": horizontal,
@@ -140,6 +164,26 @@ def coverage_metrics(
 
 def _angle_distance(first: float, second: float) -> float:
     return abs((first - second + 180.0) % 360.0 - 180.0)
+
+
+def circular_range_degrees(angles: Sequence[float]) -> float:
+    """Return the smallest circular arc containing all angles.
+
+    Inputs are normalized to ``[-180, 180)``. For evenly distributed cardinal
+    orientations (0, 90, 180, -90), the smallest covering arc is 270 degrees.
+    """
+
+    if not angles:
+        raise ValueError("At least one angle is required")
+    normalized = sorted((angle + 180.0) % 360.0 for angle in angles)
+    if len(normalized) == 1:
+        return 0.0
+    gaps = [
+        normalized[index + 1] - normalized[index]
+        for index in range(len(normalized) - 1)
+    ]
+    gaps.append(normalized[0] + 360.0 - normalized[-1])
+    return 360.0 - max(gaps)
 
 
 def is_duplicate_pose(first: ImageMetrics, second: ImageMetrics, policy: AuditPolicy) -> bool:

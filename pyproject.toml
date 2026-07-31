@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opencv-calibration-audit"
-version = "0.2.0"
+version = "0.2.1"
 description = "Audit OpenCV checkerboard calibration datasets, detect weak or duplicate views, visualize image-plane coverage, calibrate the camera, and generate an explainable offline report."
 readme = "README.md"
 license = "MIT"
@@ -28,14 +28,14 @@ classifiers = [
 dependencies = [
     "jinja2>=3.1",
     "numpy>=1.23",
-    "opencv-python-headless>=4.5.1",
+    "opencv-python-headless>=4.11",
     "PyYAML>=5.4",
     "pydantic>=2.7",
     "eval-type-backport; python_version < \"3.10\"",
 ]
 
 [project.urls]
-Homepage = "https://github.com/flavvesResearch/opencv-calibration-audit"
+Homepage = "https://pypi.org/project/opencv-calibration-audit/"
 Repository = "https://github.com/flavvesResearch/opencv-calibration-audit"
 Issues = "https://github.com/flavvesResearch/opencv-calibration-audit/issues"
 

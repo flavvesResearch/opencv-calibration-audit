@@ -13,7 +13,16 @@ import pytest
 import yaml
 from conftest import digest, write_synthetic_dataset
 
-from calibration_audit import AuditConfig, AuditResult, PatternSpec, audit_dataset
+from calibration_audit import (
+    AuditConfig,
+    AuditReason,
+    AuditResult,
+    ImageState,
+    PatternSpec,
+    ReasonCode,
+    Severity,
+    audit_dataset,
+)
 from calibration_audit.exceptions import (
     DatasetValidationError,
     InsufficientViewsError,
@@ -40,19 +49,22 @@ def test_full_synthetic_audit_and_outputs(
         "calibration.yaml",
         "accepted.txt",
         "rejected.txt",
+        "report-manifest.json",
         "assets/coverage_heatmap.png",
         "assets/reprojection_errors.png",
-        "assets/thumbnails/0000.jpg",
     }
-    assert expected <= {
+    generated = {
         path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
     }
+    assert expected <= generated
+    assert any(path.startswith("assets/thumbnails/") for path in generated)
     summary = json.loads((output / "summary.json").read_text())
     calibration = yaml.safe_load((output / "calibration.yaml").read_text())
     html = (output / "report.html").read_text()
     assert summary["schema_version"] == 1
     assert summary["passed"] is True
     assert summary["input_directory"] == "."
+    assert summary["opencv_version"] == cv2.__version__
     assert calibration["camera_matrix"]["rows"] == 3
     for section in (
         "Executive summary",
@@ -64,6 +76,7 @@ def test_full_synthetic_audit_and_outputs(
     ):
         assert section in html
     assert "https://" not in html and "http://" not in html
+    assert html.count('class="image-preview"') == len(result.images)
     assert before == {path.name: digest(path) for path in directory.glob("*.png")}
 
 
@@ -81,6 +94,32 @@ def test_output_refuses_nonempty_directory(
     assert marker.read_text() == "preserve"
 
 
+def test_overwrite_removes_only_stale_managed_thumbnails(
+    synthetic_audit: tuple[Path, AuditResult, dict[str, str]], tmp_path: Path
+) -> None:
+    _, original, _ = synthetic_audit
+    output = tmp_path / "overwrite"
+    original.write_outputs(output)
+    old_thumbnails = set((output / "assets" / "thumbnails").glob("*.jpg"))
+    assert len(old_thumbnails) == len(original.images)
+    unrelated = output / "assets" / "thumbnails" / "user-notes.txt"
+    unrelated.write_text("preserve", encoding="utf-8")
+
+    reduced = original.model_copy(deep=True)
+    reduced.images = reduced.images[:2]
+    reduced.write_outputs(output, overwrite=True)
+
+    new_thumbnails = set((output / "assets" / "thumbnails").glob("*.jpg"))
+    assert len(new_thumbnails) == 2
+    assert not (old_thumbnails - new_thumbnails) & set(output.rglob("*.jpg"))
+    assert unrelated.read_text(encoding="utf-8") == "preserve"
+    manifest = json.loads((output / "report-manifest.json").read_text(encoding="utf-8"))
+    assert sorted(manifest["generated_files"]) == manifest["generated_files"]
+    assert {path.relative_to(output).as_posix() for path in new_thumbnails} <= set(
+        manifest["generated_files"]
+    )
+
+
 def test_html_escapes_untrusted_filename(
     synthetic_audit: tuple[Path, AuditResult, dict[str, str]], tmp_path: Path
 ) -> None:
@@ -92,6 +131,75 @@ def test_html_escapes_untrusted_filename(
     html = (output / "report.html").read_text()
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+def test_html_explains_decisions_and_escapes_messages(
+    synthetic_audit: tuple[Path, AuditResult, dict[str, str]], tmp_path: Path
+) -> None:
+    _, original, _ = synthetic_audit
+    result = original.model_copy(deep=True)
+    image = result.images[0]
+    image.state = ImageState.REJECTED
+    image.reasons = [
+        AuditReason(
+            code=ReasonCode.LOW_SHARPNESS,
+            severity=Severity.ERROR,
+            message="Board <region> is below the configured threshold.",
+            measured_value=12.5,
+            threshold=20.0,
+        )
+    ]
+    warning = result.images[1]
+    warning.state = ImageState.WARNING
+    warning.reasons = [
+        AuditReason(
+            code=ReasonCode.HIGH_REPROJECTION_ERROR,
+            severity=Severity.WARNING,
+            message="In-sample residual exceeds the configured threshold.",
+            measured_value=1.25,
+            threshold=1.0,
+        )
+    ]
+    output = tmp_path / "explanations"
+    result.write_outputs(output)
+    html = (output / "report.html").read_text(encoding="utf-8")
+    assert "LOW_SHARPNESS" in html
+    assert "ERROR" in html
+    assert "Board &lt;region&gt; is below the configured threshold." in html
+    assert "12.5" in html
+    assert "20.0" in html
+    assert "Rejected before calibration" in html
+    assert "Flagged after calibration" in html
+    assert "in-sample" in html
+    assert "not independent validation" in html
+    assert 'class="rejected' in html
+    assert 'class="warning' in html
+
+
+def test_recursive_output_inside_input_is_rejected_before_discovery(tmp_path: Path) -> None:
+    image_directory = tmp_path / "images"
+    write_synthetic_dataset(image_directory, count=1)
+    generated = image_directory / "audit-result"
+    alias = tmp_path / "report-alias"
+    generated.mkdir()
+    try:
+        alias.symlink_to(generated, target_is_directory=True)
+    except OSError:
+        pytest.skip("Directory symlinks are unavailable on this platform")
+    config = AuditConfig(
+        pattern=PatternSpec(cols=9, rows=6, square_size=30),
+        recursive=True,
+        output=alias,
+        min_valid_images=1,
+        min_board_area=0.01,
+    )
+    with pytest.raises(DatasetValidationError, match="output directory.*inside"):
+        audit_dataset(image_directory, config)
+
+    safe_config = config.model_copy(update={"output": tmp_path / "safe-report"})
+    result = audit_dataset(image_directory, safe_config)
+    with pytest.raises(DatasetValidationError, match="output directory.*inside"):
+        result.write_outputs(image_directory / "different-report")
 
 
 def test_unreadable_file_is_reported_but_scan_continues(tmp_path: Path) -> None:
@@ -108,6 +216,39 @@ def test_unreadable_file_is_reported_but_scan_continues(tmp_path: Path) -> None:
     assert broken.state.value == "UNREADABLE"
     assert broken.reasons[0].code.value == "IMAGE_UNREADABLE"
     assert all(path.exists() for path in paths)
+
+
+def test_uint16_metrics_and_unsupported_dtype_reason_are_recorded(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "images"
+    destination.mkdir()
+    for path in write_synthetic_dataset(source, count=3):
+        gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        assert gray is not None
+        assert cv2.imwrite(
+            str(destination / f"{path.stem}.tiff"),
+            gray.astype(np.uint16) * 257,
+        )
+    assert cv2.imwrite(
+        str(destination / "unsupported-float.tiff"),
+        np.ones((600, 800), dtype=np.float32),
+    )
+    config = AuditConfig(
+        pattern=PatternSpec(cols=9, rows=6, square_size=30),
+        min_valid_images=3,
+        min_board_area=0.01,
+        duplicate_center_distance=0.001,
+    )
+    result = audit_dataset(destination, config)
+    supported = [image for image in result.images if image.read_success]
+    assert len(supported) == 3
+    assert all(image.metrics.original_dtype == "uint16" for image in supported)
+    assert all(image.metrics.original_bit_depth == 16 for image in supported)
+    unsupported = next(
+        image for image in result.images if image.relative_path == "unsupported-float.tiff"
+    )
+    assert unsupported.state.value == "UNREADABLE"
+    assert unsupported.reasons[0].code.value == "UNSUPPORTED_IMAGE"
 
 
 def test_mixed_resolution_fails_with_groups(tmp_path: Path) -> None:

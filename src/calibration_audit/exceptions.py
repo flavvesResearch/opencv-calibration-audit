@@ -13,6 +13,10 @@ class DatasetValidationError(CalibrationAuditError):
     """Raised when the input dataset fails validation."""
 
 
+class UnsupportedImageError(DatasetValidationError):
+    """Raised when an image decodes to an unsupported dtype or channel layout."""
+
+
 class InsufficientViewsError(DatasetValidationError):
     """Raised when not enough valid views are found for calibration."""
 

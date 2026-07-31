@@ -73,6 +73,39 @@ jobs:
           /tmp/calibration-audit-wheel-test/bin/python -m pip install dist/*.whl
           /tmp/calibration-audit-wheel-test/bin/calibration-audit --version
 
+  opencv-compatibility:
+    name: OpenCV ${{ matrix.branch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: "4.x (4.11.0.86)"
+            python-version: "3.12"
+            requirement: "opencv-python-headless==4.11.0.86"
+          - branch: "5.x (latest)"
+            python-version: "3.12"
+            requirement: "opencv-python-headless>=5,<6"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install selected OpenCV branch and project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" "${{ matrix.requirement }}"
+
+      - name: Show selected OpenCV version
+        run: python -c "import cv2; print(cv2.__version__)"
+
+      - name: Run complete test suite
+        run: pytest
+
   platform-smoke:
     name: Smoke test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

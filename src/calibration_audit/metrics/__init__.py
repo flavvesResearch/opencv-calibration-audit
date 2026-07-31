@@ -2,6 +2,7 @@
 
 from .core import (
     board_geometry,
+    circular_range_degrees,
     coverage_metrics,
     exposure_metrics,
     is_duplicate_pose,
@@ -10,6 +11,7 @@ from .core import (
 
 __all__ = [
     "board_geometry",
+    "circular_range_degrees",
     "coverage_metrics",
     "exposure_metrics",
     "is_duplicate_pose",
