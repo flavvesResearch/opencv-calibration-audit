@@ -25,6 +25,7 @@ All notable changes to this project will be documented here.
 - Record the OpenCV runtime version in `summary.json`.
 - Raise the tested OpenCV 4.x minimum to 4.11 and add explicit OpenCV 4.11/5.x
   CI jobs.
+- Require Python 3.10 or newer and remove the Python 3.9 CI job.
 - Require a maintainer-published GitHub Release after CI instead of creating
   releases automatically from ordinary `main` commits.
 

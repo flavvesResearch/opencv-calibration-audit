@@ -19,7 +19,7 @@ Analysis is local and contains no telemetry or network requests.
 python -m pip install opencv-calibration-audit
 ```
 
-Python 3.9–3.13 is supported. The implementation uses
+Python 3.10–3.13 is supported. The implementation uses
 `findChessboardCornersSB`. CI explicitly tests OpenCV 4.11.0.86 and the latest
 OpenCV 5.x release; the default dependency is the headless OpenCV wheel.
 Version `0.2.0` was the first functional audit MVP. Earlier `0.1.x` packages
@@ -236,7 +236,7 @@ python -m build
 twine check dist/*
 ```
 
-CI tests Python 3.9–3.13 plus explicit OpenCV 4.11 and 5.x jobs. Ordinary
+CI tests Python 3.10–3.13 plus explicit OpenCV 4.11 and 5.x jobs. Ordinary
 pushes and merges do not publish. After CI succeeds, a maintainer must
 explicitly publish a GitHub Release whose tag matches the version in
 `pyproject.toml`; that release triggers the separate PyPI Trusted Publishing
