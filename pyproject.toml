@@ -4,12 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opencv-calibration-audit"
-version = "0.2.1"
-description = "Audit OpenCV checkerboard calibration datasets, detect weak or duplicate views, visualize image-plane coverage, calibrate the camera, and generate an explainable offline report."
+version = "0.2.2"
+description = "Validate OpenCV checkerboard camera-calibration datasets for blur, duplicates, coverage, pose diversity, and reprojection error."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
+keywords = [
+    "opencv",
+    "camera calibration",
+    "checkerboard",
+    "camera intrinsics",
+    "reprojection error",
+    "dataset quality",
+    "computer vision",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -33,8 +42,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://pypi.org/project/opencv-calibration-audit/"
+Homepage = "https://flavvesresearch.github.io/opencv-calibration-audit/"
+Documentation = "https://flavvesresearch.github.io/opencv-calibration-audit/"
 Repository = "https://github.com/flavvesResearch/opencv-calibration-audit"
+Changelog = "https://github.com/flavvesResearch/opencv-calibration-audit/blob/main/CHANGELOG.md"
 Issues = "https://github.com/flavvesResearch/opencv-calibration-audit/issues"
 
 [project.scripts]
@@ -48,6 +59,9 @@ dev = [
     "mypy",
     "build",
     "twine",
+]
+docs = [
+    "mkdocs-material>=9.5,<10",
 ]
 
 [tool.setuptools.packages.find]

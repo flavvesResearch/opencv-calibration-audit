@@ -1,17 +1,21 @@
-# OpenCV Calibration Audit
+# OpenCV Camera Calibration Dataset Audit
 
 [![PyPI Version](https://img.shields.io/pypi/v/opencv-calibration-audit?label=PyPI&cacheSeconds=300)](https://pypi.org/project/opencv-calibration-audit/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/opencv-calibration-audit?cacheSeconds=300)](https://pypi.org/project/opencv-calibration-audit/)
-[![License](https://img.shields.io/pypi/l/opencv-calibration-audit?cacheSeconds=300)](LICENSE)
+[![License](https://img.shields.io/pypi/l/opencv-calibration-audit?cacheSeconds=300)](https://github.com/flavvesResearch/opencv-calibration-audit/blob/main/LICENSE)
 
-Audit OpenCV checkerboard calibration datasets, reject weak or duplicate views,
-visualize image-plane coverage, calibrate a monocular pinhole camera, and create
-an explainable offline report.
+Validate checkerboard image datasets before `cv2.calibrateCamera`. Detect blur,
+exposure problems, duplicate poses, weak image-plane coverage, limited pose
+diversity, and high reprojection error, then generate an explainable offline
+report.
 
-Unlike a short `cv2.calibrateCamera()` script, this package inspects the input
-dataset first. It records why each image was accepted, warned, rejected, or
-unreadable and exports both human-readable and machine-readable evidence.
-Analysis is local and contains no telemetry or network requests.
+The tool records why each image was accepted, warned, rejected, or unreadable
+and exports human-readable and machine-readable evidence. Analysis runs locally
+without telemetry or network requests and never modifies source images.
+
+[Read the documentation](https://flavvesresearch.github.io/opencv-calibration-audit/) ·
+[Install from PyPI](https://pypi.org/project/opencv-calibration-audit/) ·
+[View the main validation guide](https://flavvesresearch.github.io/opencv-calibration-audit/guide/validate-opencv-camera-calibration-dataset/)
 
 ## Installation
 
@@ -19,13 +23,10 @@ Analysis is local and contains no telemetry or network requests.
 python -m pip install opencv-calibration-audit
 ```
 
-Python 3.10–3.13 is supported. The implementation uses
-`findChessboardCornersSB`. CI explicitly tests OpenCV 4.11.0.86 and the latest
-OpenCV 5.x release; the default dependency is the headless OpenCV wheel.
-Version `0.2.0` was the first functional audit MVP. Earlier `0.1.x` packages
-were development scaffolds and should not be installed.
+Python 3.10–3.13 is supported. The package uses headless OpenCV and tests both
+OpenCV 4.11 and 5.x.
 
-## Five-minute quick start
+## 30-second quick start
 
 ```bash
 calibration-audit analyze ./calibration_images \
@@ -36,10 +37,8 @@ calibration-audit analyze ./calibration_images \
   --output ./audit_result
 ```
 
-`--cols` and `--rows` always mean **inner corners**, not squares. A target with
+`--cols` and `--rows` count inner corners, not squares. A checkerboard with
 10 × 7 squares has 9 × 6 inner corners.
-
-Example terminal summary:
 
 ```text
 Quality gates: PASSED
@@ -48,74 +47,44 @@ OpenCV RMS: 0.284931 px
 Report: audit_result/report.html
 ```
 
-Useful stricter options:
-
-```bash
-calibration-audit analyze ./calibration_images \
-  --cols 9 --rows 6 --square-size 30 --unit mm \
-  --recursive \
-  --min-valid-images 12 \
-  --min-board-area 0.05 \
-  --max-per-view-error 1.0 \
-  --fail-on-warning \
-  --output ./audit_result
-```
-
-The command will not overwrite a non-empty output directory unless
-`--overwrite-output` is supplied.
+The command refuses a non-empty output directory unless
+`--overwrite-output` is supplied. See the
+[CLI reference](https://flavvesresearch.github.io/opencv-calibration-audit/reference/cli/)
+for thresholds, recursion, quality gates, and exit codes.
 
 ## Example report
 
-This report was generated from the three redistributable real-camera OpenCV
-fixtures included with the test suite:
+The published report uses three redistributable real-camera images from
+OpenCV's sample data.
 
-```bash
-calibration-audit analyze ./real_checkerboards \
-  --cols 9 --rows 6 --square-size 30 --unit mm \
-  --min-valid-images 3 --min-board-area 0.01 \
-  --output ./audit_result
-```
+> **Small real-image smoke example — not a production-ready calibration
+> dataset.** Its coverage ratio is `0.0833`, it contains two image warnings,
+> and the checked-in run gates only the minimum valid-image count.
 
-```text
-Quality gates: PASSED
-Accepted views: 3
-OpenCV RMS: 0.203403 px
-Report: audit_result/report.html
-```
+![Annotated checkerboard decisions in the small real-image smoke report](https://flavvesresearch.github.io/opencv-calibration-audit/images/report-v0.2.1.svg)
 
-![Annotated per-image decisions in the v0.2.1 report](docs/images/report-v0.2.1.svg)
+[Open the self-contained example report](https://flavvesresearch.github.io/opencv-calibration-audit/example-report/report.html) or
+[inspect its `summary.json`](https://flavvesresearch.github.io/opencv-calibration-audit/example-report/summary.json).
+The [reproduction guide](https://flavvesresearch.github.io/opencv-calibration-audit/examples/small-real-image-smoke-example/)
+includes source, license, exact commands, measurements, and an intentional
+`--fail-on-warning` run.
 
-[Open the self-contained example report](docs/example-report/report.html) or
-[inspect its `summary.json`](docs/example-report/summary.json).
+## What it measures
 
-## Python API
+- Complete checkerboard detection and readable-image rate.
+- Global and board-region sharpness plus exposure warnings.
+- Physical board area, border safety, image-plane coverage, and corner density.
+- Scale bins, circular rotation range, and signed perspective diversity.
+- Near-duplicate pose using normalized position, area, rotation, and
+  perspective.
+- OpenCV pinhole RMS and per-view reprojection statistics.
 
-```python
-from pathlib import Path
+Coverage, diversity, sharpness, and duplicate thresholds are heuristics, not a
+calibration certificate. Per-view reprojection error is in-sample because the
+same accepted images fit and evaluate the model.
 
-from calibration_audit import AuditConfig, PatternSpec, audit_dataset
-
-config = AuditConfig(
-    pattern=PatternSpec(
-        cols=9,
-        rows=6,
-        square_size=30.0,
-        unit="mm",
-    ),
-    min_valid_images=12,
-)
-
-result = audit_dataset(
-    image_directory=Path("./calibration_images"),
-    config=config,
-)
-
-print(result.summary)
-result.write_outputs(Path("./audit_result"))
-```
-
-Library functions raise typed `CalibrationAuditError` subclasses and never
-call `sys.exit()`.
+[Learn how the metrics work](https://flavvesresearch.github.io/opencv-calibration-audit/concepts/coverage-and-diversity/) ·
+[Review decision codes](https://flavvesresearch.github.io/opencv-calibration-audit/reference/decision-codes/)
 
 ## Output
 
@@ -134,115 +103,58 @@ audit_result/
     └── thumbnails/
 ```
 
-`report.html` embeds its charts, CSS, and annotated per-image previews and works
-offline without a CDN. Filenames and decision messages are escaped. Each image
-shows the decision stage, reason severity, message, measured value, and
-threshold or rule. `summary.json` contains typed reason codes, the OpenCV
-runtime version, configuration, dataset metrics, quality gates, calibration
-parameters, and per-image results. `report-manifest.json` identifies
-generator-owned files so overwrite removes stale assets without touching
-unrelated files. `calibration.yaml` uses an OpenCV-friendly matrix layout; it
-does not claim ROS camera-info compatibility.
+`report.html` is self-contained and works offline. `summary.json` contains
+typed reason codes, runtime versions, configuration, dataset metrics, quality
+gates, calibration parameters, and per-image results.
 
-## What is measured
+[Read the complete output schema](https://flavvesresearch.github.io/opencv-calibration-audit/reference/output-schema/).
 
-- Detection rate: complete detections divided by readable images.
-- Sharpness: variance of Laplacian globally and inside the detected board.
-  With no user threshold, only clear dataset-relative outliers are warned.
-- Exposure: mean grayscale intensity and near-black/near-white ratios.
-- Board geometry: normalized center, physical target area, rotation, signed
-  perspective imbalance, and physical-boundary border distance. The physical
-  boundary is estimated one square beyond the outer detected inner corners.
-  The sharpness ROI remains the conservative inner-corner hull.
-- Coverage: occupied board-center cells in a 4 × 3 image-plane grid plus
-  corner-observation density.
-- Diversity: board-area distribution, occupied scale bins, smallest circular
-  rotation range, and horizontal/vertical perspective ranges. For example,
-  `179°` and `-179°` span approximately `2°`; the four cardinal orientations
-  span a smallest covering arc of `270°`.
-- Duplicate pose: normalized position, log-area, rotation, and perspective
-  thresholds. The sharper of two near-identical views is kept.
-- Calibration: OpenCV pinhole RMS, camera matrix, distortion coefficients,
-  extrinsics, and per-view reprojection statistics.
+## Python API
 
-Per-view reprojection RMSE is:
+```python
+from pathlib import Path
 
-```text
-sqrt(mean((projected_x - observed_x)^2 + (projected_y - observed_y)^2))
+from calibration_audit import AuditConfig, PatternSpec, audit_dataset
+
+config = AuditConfig(
+    pattern=PatternSpec(cols=9, rows=6, square_size=30.0, unit="mm"),
+    min_valid_images=12,
+)
+result = audit_dataset(Path("./calibration_images"), config)
+
+print(result.summary)
+result.write_outputs(Path("./audit_result"))
 ```
 
-Horizontal perspective is `(top - bottom) / max(top, bottom)` and vertical
-perspective is `(left - right) / max(left, right)`, so their signs retain tilt
-direction. The coverage and diversity assessments are heuristics, not a
-calibration certificate. Sharpness values are especially dependent on
-resolution, target scale, focus, and lens characteristics.
-
-The default near-duplicate component thresholds are: normalized center
-distance `0.03`, absolute log-area distance `0.08`, wrapped rotation distance
-`5°`, and combined perspective distance `0.08`. These are typed policy values
-in the Python API. The default relative-sharpness warning threshold is
-`0.35 ×` the dataset median.
-
-## Decisions and exit codes
-
-Every rejection includes a stable reason code, severity, message, measured
-value, and relevant threshold. High reprojection-error views are flagged after
-the initial calibration and are not silently removed or recalibrated.
-Per-view reprojection error is in-sample: it is computed after fitting on the
-same accepted images and is not independent validation.
-
-| Code | Meaning |
-| ---: | --- |
-| 0 | Audit completed and quality gates passed |
-| 1 | Audit completed but a configured quality gate failed |
-| 2 | Invalid arguments or invalid input dataset |
-| 3 | Unexpected processing/calibration failure |
-
-Tracebacks are hidden by default and shown only with `--log-level DEBUG`.
-
-## Input behavior
-
-Supported formats are JPEG, PNG, BMP, TIFF, and WebP. Unsigned 8-bit inputs are
-analyzed directly. Unsigned 16-bit inputs, including TIFF, use the fixed mapping
-`value / 257` to 8-bit analysis pixels; per-image min/max stretching is not
-used. Original dtype and bit depth remain in per-image metrics. Signed and
-floating-point images are rejected as unsupported.
-
-Files are processed in deterministic sorted order. Unreadable images are
-reported individually. Mixed readable resolutions fail clearly and list their
-resolution groups. Source images are never deleted, moved, rewritten, or
-otherwise modified. Recursive discovery ignores symlinks that resolve outside
-the requested input tree and rejects any output path that resolves inside the
-input tree, preventing an earlier report from becoming calibration input.
+Library functions raise typed `CalibrationAuditError` subclasses and never
+call `sys.exit()`. See the
+[Python API reference](https://flavvesresearch.github.io/opencv-calibration-audit/reference/python-api/).
 
 ## Limitations
 
-The MVP supports standard black-and-white checkerboards, monocular calibration,
-and the pinhole camera model. It does not support stereo or fisheye
-calibration, ChArUco/ArUco, circle grids, live capture, ROS output, a GUI, PDF
-reports, automatic view pruning, or input-file modification.
+Version 0.2.2 supports standard black-and-white checkerboards, monocular
+calibration, and the pinhole camera model. It does not support stereo or
+fisheye calibration, ChArUco/ArUco, circle grids, live capture, ROS output, a
+GUI, automatic view pruning, or input-file modification.
 
-To generate a print-accurate target, use the companion
-[`opencv-chessboard-generator`](https://pypi.org/project/opencv-chessboard-generator/).
+[Read the full scope and limitations](https://flavvesresearch.github.io/opencv-calibration-audit/about/limitations/).
 
 ## Development
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,docs]"
 ruff check .
 mypy .
-pytest --cov=calibration_audit --cov-report=term-missing
+pytest --cov=calibration_audit --cov-report=term-missing --cov-fail-under=85
 python -m build
 twine check dist/*
+mkdocs build --strict
 ```
 
-CI tests Python 3.10–3.13 plus explicit OpenCV 4.11 and 5.x jobs. After a
-successful `main` CI run, `auto-release.yml` creates the version tag and GitHub
-Release when the version in `pyproject.toml` has not already been released.
-It then dispatches the separate `release.yml` PyPI Trusted Publishing workflow.
-Manually published GitHub Releases also trigger `release.yml`. Commits that
-retain an already released version are safely skipped.
+CI tests Python 3.10–3.13, OpenCV 4.11/5.x, and Windows/macOS smoke
+installations. Documentation has a separate pull-request build and GitHub Pages
+deployment workflow.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/flavvesResearch/opencv-calibration-audit/blob/main/LICENSE).

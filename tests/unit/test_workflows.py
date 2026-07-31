@@ -38,3 +38,17 @@ def test_publish_accepts_release_event_and_explicit_dispatch_tag() -> None:
     assert tag_input["type"] == "string"
     assert "github.event.release.tag_name || inputs.tag" in text
     assert "pypa/gh-action-pypi-publish@release/v1" in text
+
+
+def test_docs_builds_on_pull_requests_and_deploys_main_with_scoped_permissions() -> None:
+    workflow, text = _workflow("docs.yml")
+    assert "pull_request" in workflow["on"]
+    assert workflow["on"]["push"]["branches"] == ["main"]
+    assert workflow["jobs"]["build"]["permissions"] == {"contents": "read"}
+    assert workflow["jobs"]["deploy"]["permissions"] == {
+        "pages": "write",
+        "id-token": "write",
+    }
+    assert "mkdocs build --strict" in text
+    assert "actions/upload-pages-artifact@v4" in text
+    assert "actions/deploy-pages@v4" in text

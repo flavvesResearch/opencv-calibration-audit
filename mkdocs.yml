@@ -1,0 +1,64 @@
+site_name: OpenCV Calibration Audit
+site_description: Validate OpenCV checkerboard camera-calibration datasets before cv2.calibrateCamera.
+site_url: https://flavvesresearch.github.io/opencv-calibration-audit/
+repo_url: https://github.com/flavvesResearch/opencv-calibration-audit
+repo_name: flavvesResearch/opencv-calibration-audit
+copyright: Copyright © 2026 flavvesResearch · MIT licensed
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Guide:
+      - Validate an OpenCV calibration dataset: guide/validate-opencv-camera-calibration-dataset.md
+  - Concepts:
+      - Coverage and pose diversity: concepts/coverage-and-diversity.md
+      - Reprojection error: concepts/reprojection-error.md
+      - Duplicate views: concepts/duplicate-views.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Python API: reference/python-api.md
+      - Output schema: reference/output-schema.md
+      - Decision codes: reference/decision-codes.md
+  - Examples:
+      - Small real-image smoke example: examples/small-real-image-smoke-example.md
+      - Production dataset benchmark: examples/production-dataset-benchmark.md
+  - About:
+      - Limitations: about/limitations.md
+      - Maintainer and operations: about/maintainer.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/flavvesResearch/opencv-calibration-audit
+      name: OpenCV Calibration Audit on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/opencv-calibration-audit/
+      name: OpenCV Calibration Audit on PyPI

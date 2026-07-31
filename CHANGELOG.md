@@ -2,7 +2,35 @@
 
 All notable changes to this project will be documented here.
 
-## Unreleased
+## 0.2.2 - 2026-07-31
+
+### Added
+
+- Add a public MkDocs Material documentation site for GitHub Pages.
+- Add a search-focused guide for validating OpenCV calibration datasets before
+  `cv2.calibrateCamera`.
+- Add CLI, Python API, output-schema, decision-code, metric, limitation, and
+  example documentation.
+- Add a separate documentation build and GitHub Pages deployment workflow.
+- Add `SoftwareApplication` structured data and sitemap generation.
+
+### Changed
+
+- Improve the package description, search keywords, and project URLs published
+  to PyPI.
+- Update the README title, summary, documentation links, and absolute example
+  report URLs.
+- Label the three-image real-camera example as a smoke test rather than a
+  production-ready calibration dataset.
+
+### Documentation
+
+- Document coverage, pose diversity, duplicate detection, and reprojection
+  metrics, including their heuristic limits.
+- Add a production benchmark protocol without inventing benchmark results; a
+  suitably licensed 15-view-or-larger dataset is still required.
+
+## 0.2.1 - 2026-07-31
 
 ### Fixed
 
